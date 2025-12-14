@@ -64,6 +64,9 @@ class MancalaBoard:
             self.board[current] += 1
             seeds -= 1
 
+        # Vérifier si on gagne un tour supplémentaire
+        extra_turn = (current == store)
+
         # Capture
         if current in own_pits and self.board[current] == 1:
             opposite_pit = self.opposite[current]
@@ -72,6 +75,8 @@ class MancalaBoard:
                 self.board[store] += captured + 1
                 self.board[current] = 0
                 self.board[opposite_pit] = 0
+        
+        return extra_turn
 
 
 # ==============================
@@ -120,6 +125,24 @@ class Game:
     # Fonction d'évaluation (équation du prof)
     def evaluate(self):
         return self.state.board[1] - self.state.board[2]
+    
+    # Fonction d'évaluation alternative (heuristique différente)
+    def evaluateAlt(self):
+        """Heuristique alternative : considère le nombre de graines dans les pits + bonus pour le store"""
+        # Compter les graines dans les pits de chaque joueur
+        player1_pits_seeds = sum(self.state.board[pit] for pit in self.state.player1_pits)
+        player2_pits_seeds = sum(self.state.board[pit] for pit in self.state.player2_pits)
+        
+        # Score des stores
+        store1 = self.state.board[1]
+        store2 = self.state.board[2]
+        
+        # Heuristique : 2x le score du store + 1x les graines dans les pits
+        # Plus de poids sur le store car c'est le but final
+        score_player1 = (store1 * 2) + player1_pits_seeds
+        score_player2 = (store2 * 2) + player2_pits_seeds
+        
+        return score_player1 - score_player2
 
 
 # ==============================
@@ -153,8 +176,8 @@ class Play:
             self.game, MAX, 5, -math.inf, math.inf
         )
         print("Computer plays:", pit)
-        self.game.state.doMove('player1', pit)
-        return pit
+        extra_turn = self.game.state.doMove('player1', pit)
+        return pit, extra_turn
     
     # Obtenir le meilleur coup de l'ordinateur sans l'exécuter
     def getComputerMove(self):
@@ -208,6 +231,65 @@ class Play:
 
 
 # ==============================
+# Classe Play Alternative (pour Computer vs Computer avec heuristique différente)
+# ==============================
+class PlayAlt:
+    """Version alternative avec heuristique différente pour le deuxième ordinateur"""
+    
+    def __init__(self, game):
+        self.game = game
+    
+    def getComputerMove(self):
+        """Obtenir le meilleur coup avec l'heuristique alternative"""
+        _, pit = self.MinimaxAlphaBetaPruningAlt(
+            self.game, MIN, 4, -math.inf, math.inf  # Profondeur légèrement différente
+        )
+        return pit
+    
+    def MinimaxAlphaBetaPruningAlt(self, game, player, depth, alpha, beta):
+        """Minimax avec heuristique alternative"""
+        if game.gameOver() or depth == 1:
+            bestValue = game.evaluateAlt()  # Utilise l'heuristique alternative
+            return bestValue, None
+
+        if player == MAX:
+            bestValue = -math.inf
+            bestPit = None
+            for pit in game.state.possibleMoves(game.playerSide[player]):
+                child_game = copy.deepcopy(game)
+                child_game.state.doMove(game.playerSide[player], pit)
+                value, _ = self.MinimaxAlphaBetaPruningAlt(
+                    child_game, -player, depth - 1, alpha, beta
+                )
+                if value > bestValue:
+                    bestValue = value
+                    bestPit = pit
+                if bestValue >= beta:
+                    break
+                if bestValue > alpha:
+                    alpha = bestValue
+            return bestValue, bestPit
+
+        else:
+            bestValue = math.inf
+            bestPit = None
+            for pit in game.state.possibleMoves(game.playerSide[player]):
+                child_game = copy.deepcopy(game)
+                child_game.state.doMove(game.playerSide[player], pit)
+                value, _ = self.MinimaxAlphaBetaPruningAlt(
+                    child_game, -player, depth - 1, alpha, beta
+                )
+                if value < bestValue:
+                    bestValue = value
+                    bestPit = pit
+                if bestValue <= alpha:
+                    break
+                if bestValue < beta:
+                    beta = bestValue
+            return bestValue, bestPit
+
+
+# ==============================
 # Programme principal
 # ==============================
 if __name__ == "__main__":
@@ -218,7 +300,8 @@ if __name__ == "__main__":
         play.humanTurn()
         if play.game.gameOver():
             break
-        play.computerTurn()
+        pit, extra_turn = play.computerTurn()
+        # Si extra_turn, l'ordinateur joue encore (logique à implémenter si nécessaire)
 
     play.displayBoard()
     winner, score = play.game.findWinner()
