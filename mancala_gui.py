@@ -4,7 +4,8 @@ import math
 import os
 import random
 import copy
-from mancala import Play, PlayAlt, MAX, MIN
+# Assurez-vous que ces modules sont disponibles :
+from mancala import Play, PlayAlt, MAX, MIN 
 
 # Initialisation de pygame
 pygame.init()
@@ -60,6 +61,11 @@ class MancalaGUI:
             self.medium_font = pygame.font.Font(FONT_PATH, 36)
             self.small_font = pygame.font.Font(FONT_PATH, 28)
             self.label_font = pygame.font.Font(FONT_PATH, 32)
+            
+            # POLICES STANDARD POUR LES CHIFFRES (pour éviter le carré blanc)
+            self.number_font_large = pygame.font.Font(None, 36)
+            self.number_font_small = pygame.font.Font(None, 28)
+            
         except:
             print(f"Warning: Could not load font from {FONT_PATH}, using default")
             self.title_font = pygame.font.Font(None, 72)
@@ -67,6 +73,10 @@ class MancalaGUI:
             self.medium_font = pygame.font.Font(None, 36)
             self.small_font = pygame.font.Font(None, 28)
             self.label_font = pygame.font.Font(None, 32)
+            
+            # POLICES DE REPLI
+            self.number_font_large = self.medium_font 
+            self.number_font_small = self.small_font  
         
         # Positions des pits
         self.pit_positions = {}
@@ -94,6 +104,24 @@ class MancalaGUI:
         self.current_player = 'player2'  # Commence par player2 (humain ou computer2)
         self.extra_turn = False
         
+    def reset_game(self):
+        """Réinitialise toutes les variables pour une nouvelle partie."""
+        self.play = Play() # Nouvelle instance de la logique de jeu
+        self.selected_pit = None
+        self.game_over = False
+        self.winner_message = ""
+        self.animating = False
+        self.computer_thinking = False
+        self.animation_queue = []
+        self.current_animation = None
+        self.animation_progress = 0
+        self.waiting_for_computer = False
+        self.game_mode = None 
+        self.show_menu = True
+        self.play_alt = None 
+        self.current_player = 'player2'
+        self.extra_turn = False
+
     def setup_positions(self):
         """Configure les positions des pits et stores"""
         # Dimensions
@@ -345,9 +373,9 @@ class MancalaGUI:
         self.draw_seeds_in_pit(x, y, radius, seeds)
         
         # Badge pour afficher le nombre de graines
-        badge_radius = 20
-        badge_x = x + radius - 10
-        badge_y = y - radius + 10
+        badge_radius = 24
+        badge_x = x + radius - 12
+        badge_y = y - radius + 12
         
         # Ombre du badge
         pygame.draw.circle(self.screen, (20, 15, 10), (badge_x + 2, badge_y + 2), badge_radius)
@@ -356,8 +384,9 @@ class MancalaGUI:
         pygame.draw.circle(self.screen, ACCENT_COLOR, (badge_x, badge_y), badge_radius)
         pygame.draw.circle(self.screen, (180, 140, 25), (badge_x, badge_y), badge_radius - 3)
         
-        # Nombre dans le badge
-        number_text = self.medium_font.render(str(seeds), True, (255, 255, 255))
+        # Nombre dans le badge - UTILISATION DES POLICES STANDARD POUR LES CHIFFRES
+        font_to_use = self.number_font_small if seeds > 9 else self.number_font_large
+        number_text = font_to_use.render(str(seeds), True, (255, 255, 255))
         number_rect = number_text.get_rect(center=(badge_x, badge_y))
         self.screen.blit(number_text, number_rect)
         
@@ -424,11 +453,11 @@ class MancalaGUI:
         inner_panel = score_panel_rect.inflate(-10, -10)
         pygame.draw.rect(self.screen, (100, 70, 40), inner_panel, border_radius=5)
         
-        # Score (très visible)
-        score_text = self.large_font.render(str(seeds), True, (255, 255, 255))
+        # Score (très visible) - UTILISATION DE LA POLICE STANDARD POUR LES CHIFFRES
+        score_text = self.number_font_large.render(str(seeds), True, (255, 255, 255))
         score_rect = score_text.get_rect(center=score_panel_rect.center)
         # Ombre du texte
-        shadow_score = self.large_font.render(str(seeds), True, (0, 0, 0))
+        shadow_score = self.number_font_large.render(str(seeds), True, (0, 0, 0))
         shadow_score_rect = shadow_score.get_rect(center=(score_panel_rect.centerx + 2, score_panel_rect.centery + 2))
         self.screen.blit(shadow_score, shadow_score_rect)
         self.screen.blit(score_text, score_rect)
@@ -501,7 +530,7 @@ class MancalaGUI:
         
         # Décoration intérieure
         inner_rect = board_rect.inflate(-20, -20)
-        pygame.draw.rect(self.screen, (218, 165, 32, 100), inner_rect, 2, border_radius=15)
+        pygame.draw.rect(self.screen, ACCENT_COLOR, inner_rect, 2, border_radius=15)
         
         # Stores
         self.draw_store(1, self.store_positions[1], self.play.game.state.board[1])
@@ -540,9 +569,21 @@ class MancalaGUI:
             self.screen.blit(shadow_status, shadow_rect)
             self.screen.blit(status, status_rect)
         elif not self.game_over:
-            status = self.medium_font.render("Your turn - Click a pit to play", True, ACCENT_COLOR)
+            # Vérifier qui est le joueur actuel pour le message de statut
+            if self.game_mode == 'human_vs_computer' and self.current_player == 'player2':
+                 status_text = "Your turn - Click a pit to play"
+            elif self.game_mode == 'human_vs_computer' and self.current_player == 'player1':
+                 status_text = "Computer's turn (Player 1)"
+            elif self.game_mode == 'computer_vs_computer' and self.current_player == 'player2':
+                 status_text = "Computer 2's turn"
+            elif self.game_mode == 'computer_vs_computer' and self.current_player == 'player1':
+                 status_text = "Computer 1's turn"
+            else:
+                 status_text = "Game in progress..."
+
+            status = self.medium_font.render(status_text, True, ACCENT_COLOR)
             status_rect = status.get_rect(center=(WIDTH // 2, HEIGHT - 40))
-            shadow_status = self.medium_font.render("Your turn - Click a pit to play", True, (30, 20, 10))
+            shadow_status = self.medium_font.render(status_text, True, (30, 20, 10))
             shadow_rect = shadow_status.get_rect(center=(WIDTH // 2 + 2, HEIGHT - 38))
             self.screen.blit(shadow_status, shadow_rect)
             self.screen.blit(status, status_rect)
@@ -574,12 +615,28 @@ class MancalaGUI:
         self.screen.blit(game_over_text, game_over_rect)
         
         # WINNER
-        if winner == "player1":
-            winner_name = "COMPUTER"
-            loser_name = "HUMAN"
-        else:
-            winner_name = "HUMAN"
-            loser_name = "COMPUTER"
+        
+        if self.game_mode == 'human_vs_computer':
+            # Player 1 is COMPUTER, Player 2 is HUMAN
+            if winner == "player1":
+                winner_name = "COMPUTER"
+                loser_name = "HUMAN"
+            elif winner == "player2":
+                winner_name = "HUMAN"
+                loser_name = "COMPUTER"
+            else: # Tie
+                winner_name = "TIE"
+                loser_name = ""
+        else: # Computer vs Computer
+            if winner == "player1":
+                winner_name = "COMPUTER 1"
+                loser_name = "COMPUTER 2"
+            elif winner == "player2":
+                winner_name = "COMPUTER 2"
+                loser_name = "COMPUTER 1"
+            else: # Tie
+                winner_name = "TIE"
+                loser_name = ""
         
         winner_text = self.large_font.render(f"WINNER: {winner_name}", True, WINNER_COLOR)
         winner_rect = winner_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 60))
@@ -589,12 +646,17 @@ class MancalaGUI:
         self.screen.blit(winner_text, winner_rect)
         
         # LOSER
-        loser_text = self.large_font.render(f"LOSER: {loser_name}", True, LOSER_COLOR)
-        loser_rect = loser_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
-        shadow_loser = self.large_font.render(f"LOSER: {loser_name}", True, (30, 20, 10))
-        shadow_loser_rect = shadow_loser.get_rect(center=(WIDTH // 2 + 2, HEIGHT // 2 + 2))
-        self.screen.blit(shadow_loser, shadow_loser_rect)
-        self.screen.blit(loser_text, loser_rect)
+        if winner_name != "TIE":
+            loser_text = self.large_font.render(f"LOSER: {loser_name}", True, LOSER_COLOR)
+            loser_rect = loser_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+            shadow_loser = self.large_font.render(f"LOSER: {loser_name}", True, (30, 20, 10))
+            shadow_loser_rect = shadow_loser.get_rect(center=(WIDTH // 2 + 2, HEIGHT // 2 + 2))
+            self.screen.blit(shadow_loser, shadow_loser_rect)
+            self.screen.blit(loser_text, loser_rect)
+        else:
+            tie_text = self.large_font.render("IT'S A TIE!", True, ACCENT_COLOR)
+            tie_rect = tie_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+            self.screen.blit(tie_text, tie_rect)
         
         # Final Score
         score_display = f"Final Score: {score}"
@@ -606,11 +668,14 @@ class MancalaGUI:
         self.screen.blit(score_text, score_rect)
         
         # Player scores
-        p1_text = self.small_font.render(f"Computer: {player1_score}", True, TEXT_COLOR)
+        p1_label = "Computer 1" if self.game_mode == 'computer_vs_computer' else "Computer"
+        p2_label = "Computer 2" if self.game_mode == 'computer_vs_computer' else "Human"
+        
+        p1_text = self.small_font.render(f"{p1_label}: {player1_score}", True, TEXT_COLOR)
         p1_rect = p1_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 100))
         self.screen.blit(p1_text, p1_rect)
         
-        p2_text = self.small_font.render(f"Human: {player2_score}", True, TEXT_COLOR)
+        p2_text = self.small_font.render(f"{p2_label}: {player2_score}", True, TEXT_COLOR)
         p2_rect = p2_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 130))
         self.screen.blit(p2_text, p2_rect)
         
@@ -689,6 +754,7 @@ class MancalaGUI:
                     
                     # Préparer le prochain tour après l'animation
                     self.waiting_for_computer = True
+                    self.current_player = 'player1' # Passage du tour à l'ordinateur
                     
                     break
     
@@ -707,152 +773,117 @@ class MancalaGUI:
             self.game_mode = 'computer_vs_computer'
             self.show_menu = False
             self.play_alt = PlayAlt(self.play.game)
-            self.current_player = 'player2'  # Computer2 commence
+            self.current_player = 'player2'  # Computer2 commence (pour alterner avec Computer 1)
             self.waiting_for_computer = True  # Démarrer le jeu automatiquement
     
     def update_animation(self):
         """Met à jour l'état de l'animation"""
-        if not self.animating:
-            # Si on attend le tour de l'ordinateur après l'animation du joueur
-            if self.waiting_for_computer:
-                self.waiting_for_computer = False
+        if self.animating and self.animation_queue:
+            self.animation_progress += self.animation_speed
+            
+            if self.animation_progress >= 1.0:
+                # Étape d'animation terminée
+                self.animation_queue.pop(0)
+                self.animation_progress = 0
                 
-                # Vérifier si le joueur actuel a un tour supplémentaire
-                if self.extra_turn:
-                    self.extra_turn = False
-                    # Le même joueur continue
-                    if self.current_player == 'player1':
-                        # Computer 1 continue
-                        pygame.time.wait(300)
-                        self.computer_thinking = True
-                        computer_pit = self.play.getComputerMove()
-                        self.computer_thinking = False
-                        self.execute_move_with_animation('player1', computer_pit)
-                        if self.play.game.gameOver():
-                            self.game_over = True
-                        else:
-                            self.waiting_for_computer = True
-                    else:
-                        # Player2 continue (humain ou computer2)
-                        if self.game_mode == 'computer_vs_computer':
-                            pygame.time.wait(300)
-                            self.computer_thinking = True
-                            computer_pit = self.play_alt.getComputerMove()
-                            self.computer_thinking = False
-                            self.execute_move_with_animation('player2', computer_pit)
-                            if self.play.game.gameOver():
-                                self.game_over = True
-                            else:
-                                self.waiting_for_computer = True
-                        # Sinon c'est un humain, il peut jouer
-                    return
-                
-                # Changer de joueur
-                if self.current_player == 'player2':
-                    # Tour de Computer 1
-                    self.current_player = 'player1'
-                    self.computer_thinking = True
-                    pygame.time.wait(500)
-                    computer_pit = self.play.getComputerMove()
-                    self.computer_thinking = False
-                    self.execute_move_with_animation('player1', computer_pit)
+                if not self.animation_queue:
+                    # Fin de la séquence d'animation
+                    self.animating = False
+                    
                     if self.play.game.gameOver():
                         self.game_over = True
-                    else:
+                        return
+
+                    # Gestion du changement de tour ou du tour supplémentaire
+                    if self.extra_turn:
+                        self.extra_turn = False
+                        # Le joueur actuel rejoue, mais on repasse par le mécanisme de l'IA si c'est son tour
                         self.waiting_for_computer = True
-                else:
-                    # Tour de Player2 (humain ou computer2)
-                    self.current_player = 'player2'
-                    if self.game_mode == 'computer_vs_computer':
-                        self.computer_thinking = True
-                        pygame.time.wait(500)
-                        computer_pit = self.play_alt.getComputerMove()
-                        self.computer_thinking = False
-                        self.execute_move_with_animation('player2', computer_pit)
-                        if self.play.game.gameOver():
-                            self.game_over = True
+                    else:
+                        # Changement de joueur
+                        if self.current_player == 'player1':
+                            self.current_player = 'player2'
                         else:
+                            self.current_player = 'player1'
+                        
+                        # Si le nouveau joueur est l'IA, démarrer son tour immédiatement
+                        if self.current_player == 'player1' or self.game_mode == 'computer_vs_computer':
                             self.waiting_for_computer = True
-            return
-        
-        if self.current_animation is None:
-            # Démarrer la prochaine animation
-            if self.animation_queue:
-                self.current_animation = self.animation_queue.pop(0)
-                self.animation_progress = 0
-            else:
-                # Toutes les animations sont terminées
-                self.animating = False
-                return
-        
-        # Avancer l'animation
-        self.animation_progress += self.animation_speed
-        
-        if self.animation_progress >= 1.0:
-            # Animation terminée
-            self.current_animation = None
-            self.animation_progress = 0
-    
-    def reset_game(self):
-        """Réinitialise le jeu"""
-        self.play = Play()
-        self.game_over = False
-        self.winner_message = ""
-        self.computer_thinking = False
-        self.animation_queue = []
-        self.current_animation = None
-        self.animation_progress = 0
-        self.waiting_for_computer = False
-        self.current_player = 'player2'
-        self.extra_turn = False
-        self.show_menu = True
-        self.game_mode = None
-        self.play_alt = None
-    
-    def run(self):
-        """Boucle principale du jeu"""
-        running = True
-        
-        while running:
-            self.clock.tick(FPS)
             
+            self.current_animation = self.animation_queue[0] if self.animation_queue else None
+        
+        elif self.waiting_for_computer:
+            self.waiting_for_computer = False # Réinitialiser l'attente
+            
+            player_to_move = self.current_player
+            computer_pit = None
+
+            if player_to_move == 'player1':
+                # Computer 1 (Standard AI)
+                self.computer_thinking = True
+                pygame.time.wait(300) 
+                computer_pit = self.play.getComputerMove()
+                self.computer_thinking = False
+                
+            elif player_to_move == 'player2' and self.game_mode == 'computer_vs_computer':
+                # Computer 2 (Alternative AI)
+                self.computer_thinking = True
+                pygame.time.wait(300) 
+                computer_pit = self.play_alt.getComputerMove()
+                self.computer_thinking = False
+
+            if computer_pit:
+                # Exécuter le coup de l'IA avec animation
+                self.execute_move_with_animation(player_to_move, computer_pit)
+            elif self.play.game.gameOver():
+                self.game_over = True
+            # else: le joueur humain doit cliquer
+
+    def run(self):
+        """Boucle principale du jeu."""
+        running = True
+        while running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
-                
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if event.button == 1:
-                        if self.show_menu:
-                            self.handle_menu_click(event.pos)
-                        else:
-                            self.handle_click(event.pos)
-                
                 elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
+                    if self.game_over:
+                        if event.key == pygame.K_SPACE:
+                            self.reset_game()
+                        elif event.key == pygame.K_ESCAPE:
+                            running = False
+                    elif self.show_menu and event.key == pygame.K_ESCAPE:
                         running = False
-                    elif event.key == pygame.K_SPACE and self.game_over:
-                        self.reset_game()
+                
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    pos = pygame.mouse.get_pos()
+                    if self.show_menu:
+                        self.handle_menu_click(pos)
+                    elif not self.game_over:
+                        self.handle_click(pos)
+
+            # Logique de mise à jour
+            if not self.show_menu and not self.game_over:
+                self.update_animation()
+
+            # Rendu
+            self.screen.fill(BG_COLOR)
             
-            # Afficher le menu ou le jeu
             if self.show_menu:
                 self.draw_menu()
             else:
-                # Mettre à jour les animations
-                self.update_animation()
-                
-                # Dessin
                 self.draw_board()
                 self.draw_status()
-                
                 if self.game_over:
                     self.draw_game_over()
-            
+
             pygame.display.flip()
-        
+            self.clock.tick(FPS)
+
         pygame.quit()
         sys.exit()
 
-
 if __name__ == "__main__":
-    game = MancalaGUI()
-    game.run()
+    # Point d'entrée du programme
+    game_gui = MancalaGUI()
+    game_gui.run()
